@@ -1,0 +1,111 @@
+﻿name: productshowcase
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      MYSQL_ROOT_PASSWORD: $"{MYSQL_ROOT_PASSWORD:-Root_SecPass_2026!#}
+      MYSQL_DATABASE: $"{MYSQL_DATABASE:-wordpress}
+      MYSQL_USER: $"{MYSQL_USER:-wpapp}
+      MYSQL_PASSWORD: $"{MYSQL_PASSWORD:-Wp_App_StrongPass2026!#}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  wordpress:
+    image: wordpress:php8.3-fpm
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      WORDPRESS_DB_HOST: mysql:3306
+      WORDPRESS_DB_NAME: $"{MYSQL_DATABASE:-wordpress}
+      WORDPRESS_DB_USER: $"{MYSQL_USER:-wpapp}
+      WORDPRESS_DB_PASSWORD: $"{MYSQL_PASSWORD:-Wp_App_StrongPass2026!#}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('DISALLOW_FILE_EDIT', true);
+        define('WP_ENVIRONMENT_TYPE', 'local');
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./theme/techshow:/var/www/html/wp-content/themes/techshow:ro
+    networks:
+      - application
+      - database
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1',9000)?0:1);"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  nginx:
+    image: nginxinc/nginx-unprivileged:1.28-alpine
+    restart: unless-stopped
+    user: 101:101
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
+    ports:
+      - "$"{WEB_PORT:-8080}:8080"
+    volumes:
+      - ./config/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - wordpress_data:/var/www/html:ro
+      - ./theme/techshow:/var/www/html/wp-content/themes/techshow:ro
+      - nginx_logs:/var/log/project
+    networks:
+      - application
+    depends_on:
+      wordpress:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8081/stub_status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  phpmyadmin:
+    image: phpmyadmin:5-apache
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      PMA_HOST: mysql
+      PMA_ARBITRARY: "0"
+      UPLOAD_LIMIT: 32M
+    ports:
+      - "127.0.0.1:18081:80"
+    networks:
+      - database
+      - management
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+networks:
+  application: {}
+  database:
+    internal: true
+  management: {}
+
+volumes:
+  mysql_data: {}
+  wordpress_data: {}
+  nginx_logs: {}
